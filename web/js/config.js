@@ -1,15 +1,12 @@
-// Build settings. Nothing private is committed: a build may add web/js/config.local.js (ignored by
-// git), either by hand for your own builds or from repository secrets in GitHub Actions. Format:
-//
-//   export default {
-//     officialServer: { backendUrl: 'https://api.nuvio.tv', publishableKey: '…' },
-//     tmdbApiKey: '…',
-//     trakt: { clientId: '…', clientSecret: '…' },
-//   };
+// Build settings. Official Nuvio Cloud connection details are public client configuration.
+// Optional per-build overrides can be supplied in web/js/config.local.js (ignored by git).
 
 const config = {
-  /** The Nuvio server this build signs in to without any setup, or null. */
-  officialServer: null,
+  /** The official Nuvio account service, available immediately after installation. */
+  officialServer: {
+    backendUrl: 'https://api.nuvio.tv',
+    publishableKey: 'sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN',
+  },
   /** A TMDB key to use when the user hasn't entered their own. */
   tmdbApiKey: '',
   /**
