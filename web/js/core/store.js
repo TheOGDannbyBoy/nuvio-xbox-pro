@@ -70,6 +70,12 @@ export const DEFAULT_SETTINGS = {
   showUnsupportedStreams: false,
   streamSort: 'addon', // addon | quality | size
   rememberLastStream: true,
+  streamSelectionMode: 'manual', // manual | auto-first | auto-regex
+  streamAutoRegex: '',
+  streamSelectionTimeout: 15,
+  customStreamBadges: [],
+  customStreamBadgesUrl: '',
+  customStreamBadgesUrls: [],
   // Subtitle appearance (addon subtitles are drawn by the app)
   subtitleSize: 100, // percent
   subtitleColor: '#ffffff',
