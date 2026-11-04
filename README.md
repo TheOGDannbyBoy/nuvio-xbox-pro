@@ -2,7 +2,7 @@
 
 Nuvio for **Xbox Developer Mode** with **VLC built in**, plus the same Nuvio web app for any browser.
 
-Nuvio has no web or Xbox version, so this project is a Nuvio client written as a web app (`web/`) and packaged in a UWP app (`Nuvio/`) that plays everything with LibVLC. Debrid links in any format play: MKV, HEVC/H.265, 4K, Dolby Vision/HDR10, AV1, and TrueHD/Atmos/DTS-HD/EAC3 audio, because VLC does the decoding instead of the Edge engine. Nothing is torrented on the console; it only plays HTTP links served by your addons or debrid service.
+Nuvio has no web or Xbox version, so this project is a Nuvio client written as a web app (`web/`) and packaged in a UWP app (`Nuvio/`) with LibVLC playback. The console plays HTTP links served by your addons or debrid service. Playback depends on the video codec, Dolby Vision profile, container, and the Xbox video output; LibVLC cannot guarantee every release will play.
 
 > **VLC is wrapped into the app.** The package contains LibVLC (the engine behind VLC media player). You don't need to install anything else.
 
@@ -67,6 +67,8 @@ Optional: with a TMDB key (Settings → Integrations, or the `TMDB_API_KEY` secr
 
 ## Troubleshooting
 The app keeps a log of starting up and playing: read it on the TV in **Settings → About → View log** (this session and the last one). To copy the whole file, download it from the Device Portal: **File explorer → LocalAppData →** the Nuvio package folder (`b7f0f2ee-…`) **→ LocalState → `nuvio-vlc.log`**. Include it when reporting a problem.
+
+If a stream fails to start video, the app automatically tries up to three alternatives, preferring HDR10 or SDR over Dolby Vision and resolving cached Torrentio results through a connected TorBox account. **Sources** in the player controls opens the complete list if you need to choose a release yourself. The app reports a video startup error after 20 seconds when LibVLC never creates a usable video output; a decoder that outputs black frames may not report an error. Native Nuvio's Android player has Dolby Vision profile and engine fallback paths that this Xbox LibVLC build does not yet implement.
 
 Known limitations:
 - Subtitle styling applies to addon subtitles; subtitles built into the video file use VLC's default style.
