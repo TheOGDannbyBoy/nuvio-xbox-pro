@@ -1,10 +1,33 @@
 import { h, icon, img } from '../core/dom.js';
+import { focus } from '../core/focus.js';
+import { events } from '../core/store.js';
+import { openTitleActions } from '../services/navigation.js';
 import { formatTimeLeft, formatEpisodeCode } from '../core/format.js';
+
+// One controller context-menu path serves poster and Continue Watching cards throughout Nuvio.
+events.on('nav:action', async ({ action }) => {
+  if (!['menu', 'y', 'longselect'].includes(action)) return;
+  const card = focus.current;
+  if (!card) return;
+  if (card.__entry) {
+    const entry = card.__entry;
+    await openTitleActions({
+      id: entry.contentId,
+      type: entry.contentType,
+      name: entry.title,
+      poster: entry.poster,
+      background: entry.background,
+      logo: entry.logo,
+    }, { continueEntry: entry });
+  } else if (card.__meta) {
+    await openTitleActions(card.__meta);
+  }
+});
 
 /** A poster for a catalog item (meta preview). */
 export function posterCard(meta, { onClick, watched = false, progress = 0 } = {}) {
   const shape = (meta.posterShape || 'poster').toLowerCase();
-  return h('button', {
+  const card = h('button', {
     class: ['card', 'poster-card', 'focusable', `shape-${shape}`],
     type: 'button',
     title: meta.name,
@@ -19,6 +42,8 @@ export function posterCard(meta, { onClick, watched = false, progress = 0 } = {}
     watched && h('span', { class: 'card-watched' }, icon('check')),
     progress > 0 && h('div', { class: 'card-progress' }, h('span', { style: { width: `${Math.min(100, progress * 100)}%` } }))),
   h('div', { class: 'card-title' }, meta.name));
+  card.__meta = meta;
+  return card;
 }
 
 /** A Continue Watching card: backdrop, logo, progress and what's next. */
@@ -28,7 +53,7 @@ export function continueCard(entry, { onClick } = {}) {
   const sub = entry.nextUp
     ? `Next Up${entry.next ? ' · ' + formatEpisodeCode(entry.next.season, entry.next.episode) : ''}`
     : [episode, formatTimeLeft(entry.duration - entry.position)].filter(Boolean).join(' · ');
-  return h('button', {
+  const card = h('button', {
     class: ['card', 'wide-card', 'focusable'],
     type: 'button',
     onClick: (e) => {
@@ -46,6 +71,8 @@ export function continueCard(entry, { onClick } = {}) {
   h('div', { class: 'card-caption' },
     h('span', { class: 'card-title' }, entry.title || ''),
     h('span', { class: 'card-sub' }, sub)));
+  card.__entry = entry;
+  return card;
 }
 
 /** An episode in the details screen. */
