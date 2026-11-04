@@ -285,7 +285,8 @@ function debridPage() {
     } else {
       list.append(h('h2', { class: 'settings-section' }, 'CONNECT A SERVICE'));
       for (const [id, info] of Object.entries(DEBRID_PROVIDERS)) {
-        list.append(settingRow({ label: info.name, description: `API key from ${info.keyHelp}`, icon: 'bolt', value: 'Connect', onClick: () => connect(id) }));
+        const description = id === 'torbox' ? 'Link your TorBox account with a phone code' : `API key from ${info.keyHelp}`;
+        list.append(settingRow({ label: info.name, description, icon: 'bolt', value: 'Connect', onClick: () => connect(id) }));
       }
     }
     focus.restore(list);
