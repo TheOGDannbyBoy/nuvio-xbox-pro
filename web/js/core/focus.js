@@ -35,12 +35,12 @@ const KEY_ACTIONS = {
 };
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
 // The console may deliver a button both through the app and as a key; drop the echo.
-const DEDUPE_MS = 150;
+const DEDUPE_MS = 150;const REPEAT_INTERVAL = 95;
 const TEXT_INPUT = /^(text|search|email|url|password|tel|number)$/i;
 
 const scopes = [];
 const groupMemory = new WeakMap();
-const lastBySource = { native: new Map(), key: new Map() };
+const lastBySource = { native: new Map(), key: new Map() }; const lastRepeatAt = new Map();
 let current = null;
 let usingPointer = false;
 
@@ -234,7 +234,7 @@ function handle(action, repeat, source) {
   if (source !== 'code') {
     const other = source === 'native' ? lastBySource.key : lastBySource.native;
     lastBySource[source].set(action, now);
-    if (now - (other.get(action) || -1e9) < DEDUPE_MS) return;
+    if (now - (other.get(action) || -1e9) < DEDUPE_MS) return; if (DIRECTIONS.has(action)) { if (repeat && now - (lastRepeatAt.get(action) || 0) < REPEAT_INTERVAL) return; lastRepeatAt.set(action, now); }
   }
   // The topmost scope, then the view, get first say.
   for (let i = scopes.length - 1; i >= 0; i--) {
