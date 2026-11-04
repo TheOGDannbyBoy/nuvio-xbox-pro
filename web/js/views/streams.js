@@ -5,7 +5,7 @@ import { settings } from '../core/store.js';
 import { formatEpisodeCode } from '../core/format.js';
 import { streamAddons, fetchStreams, addonName } from '../services/addons.js';
 import { fetchMeta, sortedVideos } from '../services/meta.js';
-import { describeStream, sortStreams, isPlayable } from '../services/streams.js';
+import { describeStream, sortStreams, isPlayable, customBadgesForStream, badgeCssColor } from '../services/streams.js';
 import { parseVideoId } from '../services/progress.js';
 import { chip, spinner, emptyState, button, toast } from '../components/ui.js';
 import { debridAccount, debridName, resolveTorrent, DEBRID_PROVIDERS } from '../services/debrid.js';
@@ -137,6 +137,16 @@ export function streamsView({ params, state }) {
   function streamItem(entry) {
     const { info: d } = entry;
     const playable = canPlay(entry);
+    const customBadges = customBadgesForStream(entry.stream, settings.get('customStreamBadges'));
+    const badges = customBadges.length ? customBadges.map((badge) => h('span', {
+      class: 'badge stream-badge-custom',
+      title: badge.name,
+      style: {
+        '--badge-bg': badgeCssColor(badge.tagColor) || 'var(--surface-2)',
+        '--badge-border': badgeCssColor(badge.borderColor) || 'transparent',
+      },
+    }, badge.imageURL ? img(badge.imageURL, { class: 'badge-image', alt: '' }) : badge.name))
+      : d.badges.map((badge) => h('span', { class: 'badge' }, badge));
     const side = [];
     if (d.kind === 'torrent' && debrid) side.push(h('span', { class: 'stream-debrid' }, `via ${DEBRID_PROVIDERS[debrid.provider].short}`));
     if (d.cached) side.push(h('span', { class: 'stream-cached' }, icon('bolt'), d.debrid ? d.debrid + '+' : 'Cached'));
@@ -154,7 +164,7 @@ export function streamsView({ params, state }) {
     h('div', { class: 'stream-main' },
       h('div', { class: 'stream-name' }, d.name),
       d.detail && h('div', { class: 'stream-detail' }, d.detail),
-      d.badges.length ? h('div', { class: 'stream-badges' }, d.badges.map((b) => h('span', { class: 'badge' }, b))) : null),
+      badges.length ? h('div', { class: 'stream-badges' }, badges) : null),
     side.length ? h('div', { class: 'stream-side' }, side) : null);
     item.__entry = entry;
     return item;
@@ -163,14 +173,14 @@ export function streamsView({ params, state }) {
   let resolving = false;
 
   async function play(entry, item) {
-    if (resolving) return;
+    if (resolving) return false;
     let stream = { ...entry.stream, addonUrl: entry.addon.transportUrl, addonName: entry.info.addonName };
     if (!isPlayable(entry.stream)) {
       if (entry.info.kind !== 'torrent' || !debrid) {
         toast(entry.info.kind === 'torrent'
           ? 'Torrents can\'t be played on this device. Connect a debrid service in Settings, or use one in your addon.'
           : 'This link can\'t be played here.', { kind: 'error' });
-        return;
+        return false;
       }
       // Ask the debrid service for a direct link to this torrent's file.
       resolving = true;
@@ -185,17 +195,18 @@ export function streamsView({ params, state }) {
         };
       } catch (error) {
         toast(error.message, { kind: 'error', duration: 4000 });
-        return;
+        return false;
       } finally {
         resolving = false;
         if (item) item.classList.remove('resolving');
       }
-      if (closed) return;
+      if (closed) return false;
     }
     const others = sortStreams(entries.filter((e) => e.info.kind === 'http'), settings.get('streamSort'))
       .map((e) => ({ ...e.stream, addonUrl: e.addon.transportUrl, addonName: e.info.addonName }))
       .filter((s) => s.url !== stream.url);
     router.go('player', { meta, video, stream, streams: [stream, ...others], restart: !!state.restart });
+    return true;
   }
 
   async function loadStreams() {
@@ -204,7 +215,7 @@ export function streamsView({ params, state }) {
     renderFilters();
     renderStatus();
     renderList();
-    await Promise.all(addons.map(async (addon, order) => {
+    const searches = Promise.all(addons.map(async (addon, order) => {
       try {
         const streams = await fetchStreams(addon, type, videoId);
         if (closed) return;
@@ -221,6 +232,30 @@ export function streamsView({ params, state }) {
       renderStatus();
       renderList();
     }));
+    const mode = settings.get('streamSelectionMode');
+    const timeout = Number(settings.get('streamSelectionTimeout')) || 0;
+    if (mode === 'manual' || !timeout) await searches;
+    else await Promise.race([searches, new Promise((resolve) => setTimeout(resolve, timeout * 1000))]);
+    if (closed || mode === 'manual') return;
+
+    let candidates = sortStreams(entries.filter(canPlay), settings.get('streamSort'));
+    if (mode === 'auto-regex') {
+      const source = String(settings.get('streamAutoRegex') || '');
+      try {
+        if (!source) throw new Error('Enter an auto-play filter in Settings → Playback.');
+        const regex = new RegExp(source.replace(/^\(\?i\)/i, ''), /^\(\?i\)/i.test(source) ? 'i' : '');
+        candidates = candidates.filter((entry) => regex.test(`${entry.info.name}\n${entry.info.detail}`));
+      } catch (error) {
+        toast(error.message || 'Auto-play filter is invalid. Choose a stream manually.', { kind: 'error', duration: 4500 });
+        return;
+      }
+    }
+    for (const candidate of candidates.slice(0, 3)) {
+      if (await play(candidate, null)) return;
+    }
+    toast(candidates.length
+      ? 'Automatic playback could not start a source. Choose one from the list.'
+      : 'No playable source matched. Choose a stream manually.', { kind: 'error', duration: 4500 });
   }
 
   async function init() {

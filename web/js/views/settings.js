@@ -2,7 +2,7 @@ import { h, icon, img, clear } from '../core/dom.js';
 import { focus } from '../core/focus.js';
 import { router } from '../core/router.js';
 import { bridge } from '../core/bridge.js';
-import { qrSvg } from '../core/qr.js';
+import { getJson } from '../core/http.js';
 import { events, settings } from '../core/store.js';
 import {
   listAddons, installAddon, removeAddon, moveAddon, setAddonEnabled, refreshAddon, addonName,
@@ -11,11 +11,11 @@ import {
 import { LANGUAGE_CHOICES } from '../services/subtitles.js';
 import { accountPage } from './account.js';
 import { integrationsPage } from './integrations.js';
-import { DEBRID_PROVIDERS, debridAccount, setDebridAccount, validateDebridKey, startTorboxDeviceAuth, waitForTorboxDeviceAuth } from '../services/debrid.js';
+import { DEBRID_PROVIDERS, debridAccount, setDebridAccount, validateDebridKey } from '../services/debrid.js';
 import { installKind, checkForUpdate, lastUpdateCheck } from '../services/updates.js';
 import { showUpdateDialog } from '../components/update.js';
 import {
-  settingRow, toggleRow, button, chip, choicePanel, promptDialog, confirmDialog, openDialog, toast, emptyState, spinner,
+  settingRow, toggleRow, button, chip, choicePanel, promptDialog, confirmDialog, toast, emptyState, spinner,
 } from '../components/ui.js';
 
 const SECTIONS = [
@@ -207,7 +207,6 @@ function debridPage() {
 
   async function connect(provider) {
     const info = DEBRID_PROVIDERS[provider];
-    if (provider === 'torbox') return connectTorbox();
     const key = await promptDialog({
       title: `${info.name} API key`,
       message: `Find it at ${info.keyHelp}.`,
@@ -228,38 +227,6 @@ function debridPage() {
     setDebridAccount({ provider, apiKey: key.trim() });
     toast(`${info.name} connected`, { kind: 'success' });
     render();
-  }
-
-  function connectTorbox() {
-    const controller = new AbortController();
-    openDialog({
-      title: 'Connect TorBox',
-      build: (close) => {
-        const body = h('div', { class: 'code-signin' }, spinner(), h('p', null, 'Getting a TorBox code…'));
-        (async () => {
-          try {
-            const auth = await startTorboxDeviceAuth();
-            const qr = h('div', { class: 'code-qr', html: qrSvg(auth.url) });
-            clear(body).append(h('div', { class: 'code-layout' }, qr, h('div', { class: 'code-text' },
-              h('p', null, 'On your phone, open'),
-              h('div', { class: 'code-link' }, auth.url.replace(/^https?:\/\//, '')),
-              h('p', null, 'Sign in to TorBox and enter this code:'),
-              h('div', { class: 'code-value' }, auth.userCode),
-              h('p', { class: 'settings-hint' }, 'This code expires in about 10 minutes.'))));
-            const token = await waitForTorboxDeviceAuth(auth, controller.signal);
-            if (controller.signal.aborted) return;
-            setDebridAccount({ provider: 'torbox', apiKey: token });
-            toast('TorBox connected', { kind: 'success' });
-            render();
-            close(true);
-          } catch (error) {
-            if (controller.signal.aborted) return;
-            clear(body).append(h('p', null, error.message || 'Could not connect to TorBox.'));
-          }
-        })();
-        return h('div', null, body, h('div', { class: 'dialog-actions' }, button('Cancel', { autofocus: true, onClick: () => close(null) })));
-      },
-    }).then(() => controller.abort());
   }
 
   function render() {
@@ -285,8 +252,7 @@ function debridPage() {
     } else {
       list.append(h('h2', { class: 'settings-section' }, 'CONNECT A SERVICE'));
       for (const [id, info] of Object.entries(DEBRID_PROVIDERS)) {
-        const description = id === 'torbox' ? 'Link your TorBox account with a phone code' : `API key from ${info.keyHelp}`;
-        list.append(settingRow({ label: info.name, description, icon: 'bolt', value: 'Connect', onClick: () => connect(id) }));
+        list.append(settingRow({ label: info.name, description: `API key from ${info.keyHelp}`, icon: 'bolt', value: 'Connect', onClick: () => connect(id) }));
       }
     }
     focus.restore(list);
@@ -313,8 +279,71 @@ function playbackPage() {
     settingToggle('hardwareDecoding', 'Hardware decoding', 'Turn off if a video shows a green or corrupted picture'),
     sectionHeader('STREAMS'),
     settingChoice('streamSort', 'Sort streams', null, [['addon', 'Addon order'], ['quality', 'Best quality first'], ['size', 'Largest first']]),
+    settingChoice('streamSelectionMode', 'Stream selection', 'Choose a source every time or let Nuvio start the best match automatically', [['manual', 'Manually select each time'], ['auto-first', 'Auto-play first playable source'], ['auto-regex', 'Auto-play matching source']]),
+    settingRow({
+      label: 'Auto-play filter',
+      description: settings.get('streamAutoRegex') || 'Regular expression matched against stream names',
+      control: icon('edit'),
+      onClick: async () => {
+        const value = await promptDialog({ title: 'Auto-play filter', label: 'Regular expression', value: settings.get('streamAutoRegex'), placeholder: '1080p|4K|HEVC', confirmLabel: 'Save' });
+        if (value === null) return;
+        try { if (value) new RegExp(value.replace(/^\(\?i\)/i, ''), /^\(\?i\)/i.test(value) ? 'i' : ''); }
+        catch { toast('That regular expression is not valid', { kind: 'error' }); return; }
+        settings.set('streamAutoRegex', value.trim());
+        toast('Auto-play filter saved');
+      },
+    }),
+    settingChoice('streamSelectionTimeout', 'Auto-play wait time', 'How long to collect streams before choosing', [[5, '5 seconds'], [10, '10 seconds'], [15, '15 seconds'], [30, '30 seconds'], [0, 'Wait for every addon']]),
     settingToggle('rememberLastStream', 'Continue with the last stream', 'Continue Watching reuses the link you played last'),
-    settingToggle('showUnsupportedStreams', 'Show torrent results', 'Torrents can\'t play on this device; they\'re listed for reference only'));
+    settingToggle('showUnsupportedStreams', 'Show torrent results', 'Torrents can\'t play on this device; they\'re listed for reference only'),
+    settingRow({
+      label: 'Import custom stream badges',
+      description: settings.get('customStreamBadges').length ? `${settings.get('customStreamBadges').length} rules · ${Math.max(settings.get('customStreamBadgesUrls').length, settings.get('customStreamBadgesUrl') ? 1 : 0)}/3 badge sets` : 'Load up to three Nuvio badge JSON files from URLs',
+      icon: 'plus',
+      onClick: async () => {
+        const url = await promptDialog({ title: 'Import custom badges', label: 'Raw JSON URL', placeholder: 'https://raw.githubusercontent.com/…/badges.json', kind: 'url', confirmLabel: 'Import' });
+        if (!url) return;
+        try {
+          const sourceUrl = url.trim();
+          if (new URL(sourceUrl).protocol !== 'https:') throw new Error('Badge JSON must use HTTPS.');
+          const currentUrls = settings.get('customStreamBadgesUrls').length
+            ? settings.get('customStreamBadgesUrls')
+            : (settings.get('customStreamBadgesUrl') ? [settings.get('customStreamBadgesUrl')] : []);
+          if (!currentUrls.includes(sourceUrl) && currentUrls.length >= 3) throw new Error('You can import up to three badge sets. Clear the current sets to replace them.');
+          const data = await getJson(sourceUrl, { ttl: 0, timeout: 15000 });
+          if (!Array.isArray(data && data.filters) || !data.filters.length || data.filters.length > 300) throw new Error('The JSON must contain between 1 and 300 badge filters.');
+          const filters = data.filters.filter((f) => f && typeof f.name === 'string' && typeof f.pattern === 'string' && f.pattern.length <= 300);
+          if (!filters.length) throw new Error('No valid badge rules were found.');
+          for (const f of filters) {
+            const pattern = f.pattern.replace(/^\(\?i\)/i, '');
+            new RegExp(pattern, /^\(\?i\)/i.test(f.pattern) ? 'i' : '');
+            if (f.imageURL && new URL(f.imageURL).protocol !== 'https:') throw new Error('Badge images must use HTTPS.');
+          }
+          const retained = settings.get('customStreamBadges').filter((f) => f.sourceUrl !== sourceUrl);
+          const imported = filters.map((f, index) => ({ ...f, id: `${sourceUrl}#${String(f.id || index)}`, groupId: String(f.groupId || f.id || index), sourceUrl }));
+          if (retained.length + imported.length > 300) throw new Error('The combined badge sets can contain up to 300 rules.');
+          settings.set('customStreamBadges', [...retained, ...imported]);
+          settings.set('customStreamBadgesUrls', [...currentUrls.filter((value) => value !== sourceUrl), sourceUrl]);
+          settings.set('customStreamBadgesUrl', sourceUrl);
+          toast(`${filters.length} badge rules imported`, { kind: 'success' });
+        } catch (error) {
+          toast(`Badge import failed: ${error.message}`, { kind: 'error', duration: 5000 });
+        }
+      },
+    }),
+    settings.get('customStreamBadges').length ? settingRow({
+      label: 'Clear custom badges',
+      description: 'Return to the built-in stream badges',
+      icon: 'trash',
+      onClick: async () => {
+        if (await confirmDialog({ title: 'Clear custom badges?', message: 'The built-in resolution, HDR, codec and audio badges will be shown again.', confirmLabel: 'Clear', danger: true })) {
+          settings.set('customStreamBadges', []);
+          settings.set('customStreamBadgesUrl', '');
+          settings.set('customStreamBadgesUrls', []);
+          toast('Custom badges cleared');
+        }
+      },
+    }) : null);
 }
 
 // ---------- Subtitles ----------
