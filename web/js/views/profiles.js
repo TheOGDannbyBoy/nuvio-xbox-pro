@@ -4,7 +4,7 @@ import { h, clear, icon, img } from '../core/dom.js';
 import { focus } from '../core/focus.js';
 import { bridge } from '../core/bridge.js';
 import { settings } from '../core/store.js';
-import { isSignedIn, cachedProfiles, pullProfiles, activeProfileIndex, verifyProfilePin } from '../services/account.js';
+import { isSignedIn, cachedProfiles, pullProfiles, activeProfileIndex, verifyProfilePin, getServer } from '../services/account.js';
 import { promptDialog, toast } from '../components/ui.js';
 
 // Per app run: switching profile reloads the page, which shouldn't ask again.
@@ -15,13 +15,31 @@ export function profileName(profile) {
 }
 
 function avatarColor(profile) {
-  return /^#[0-9a-f]{3,8}$/i.test(profile.avatar_color_hex || '') ? profile.avatar_color_hex : '#2f6fed';
+  const color = profile.avatar_color_hex || profile.avatarColorHex || '';
+  return /^#[0-9a-f]{3,8}$/i.test(color) ? color : '#2f6fed';
 }
 
-/** A profile's round avatar: its colour and first letter. */
+function avatarImageUrl(profile) {
+  const direct = profile.avatar_url || profile.avatarUrl;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  // Nuvio's preset avatars are stored as PNG objects in the server's public avatars bucket.
+  const id = profile.avatar_id || profile.avatarId;
+  const server = id && getServer();
+  if (!server || !id) return null;
+  const name = String(id).trim().replace(/^\/+/, '');
+  if (!name || name.includes('..')) return null;
+  const assetPath = name.split('/').map(encodeURIComponent).join('/');
+  const filename = name.split('/').pop();
+  return `${server.backendUrl}/storage/v1/object/public/avatars/${filename.includes('.') ? assetPath : `${assetPath}.png`}`;
+}
+
+/** A profile's round avatar, with its initials kept as a fallback if the image is unavailable. */
 export function profileAvatar(profile, cls) {
+  const url = avatarImageUrl(profile);
   return h('span', { class: ['profile-avatar', cls], style: { background: avatarColor(profile) } },
-    profileName(profile).trim().charAt(0).toUpperCase() || '?');
+    profileName(profile).trim().charAt(0).toUpperCase() || '?',
+    url ? img(url, { class: 'profile-avatar-image', alt: '', onError: (event) => event.currentTarget.remove() }) : null);
 }
 
 /** Whether to ask now: at a fresh start, signed in, with more than one profile. */
