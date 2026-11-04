@@ -212,9 +212,18 @@ export async function signOut() {
   if (server && session) {
     requestJson(`${server.backendUrl}/auth/v1/logout`, { method: 'POST', headers: headers(session.accessToken) }).catch(() => {});
   }
+  // Add-ons belong to the signed-in Nuvio profile. Remove this profile's cached list on
+  // sign-out, while leaving device integrations (including TorBox credentials) intact.
+  applyingRemote = true;
+  try {
+    await replaceAddons([]);
+  } finally {
+    applyingRemote = false;
+  }
   storage.set(SESSION_KEY, undefined);
   storage.set('profiles', undefined);
   storage.set(profileKey('syncCursors'), undefined);
+  storage.set('activeProfile', 1);
   clearInterval(pullTimer);
   events.emit('account', { signedOut: true });
 }

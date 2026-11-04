@@ -87,6 +87,39 @@ export function describeStream(stream, addonName) {
   };
 }
 
+/** Nuvio-compatible custom badge rules, matched in order with one badge per group. */
+export function customBadgesForStream(stream, filters = []) {
+  const hints = stream.behaviorHints || {};
+  const text = [stream.name, stream.title, stream.description, hints.filename].filter(Boolean).join('\n');
+  const groups = new Set();
+  const badges = [];
+  for (const filter of filters) {
+    if (!filter || !filter.pattern || !filter.name) continue;
+    const inlineInsensitive = /^\(\?i\)/i.test(filter.pattern);
+    let matched = false;
+    try {
+      matched = new RegExp(filter.pattern.replace(/^\(\?i\)/i, ''), inlineInsensitive ? 'i' : '').test(text);
+    } catch { continue; }
+    const group = String(filter.groupId || filter.id || filter.name);
+    if (!matched || groups.has(group)) continue;
+    groups.add(group);
+    badges.push(filter);
+  }
+  return badges;
+}
+
+export function badgeCssColor(value) {
+  const hex = String(value || '').trim();
+  if (/^#[0-9a-f]{8}$/i.test(hex)) {
+    const alpha = parseInt(hex.slice(1, 3), 16) / 255;
+    const red = parseInt(hex.slice(3, 5), 16);
+    const green = parseInt(hex.slice(5, 7), 16);
+    const blue = parseInt(hex.slice(7, 9), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${alpha.toFixed(2)})`;
+  }
+  return /^#[0-9a-f]{6}$/i.test(hex) ? hex : null;
+}
+
 /** Request headers the stream asks the player to send (behaviorHints.proxyHeaders). */
 export function streamHeaders(stream) {
   const request = stream.behaviorHints && stream.behaviorHints.proxyHeaders && stream.behaviorHints.proxyHeaders.request;
