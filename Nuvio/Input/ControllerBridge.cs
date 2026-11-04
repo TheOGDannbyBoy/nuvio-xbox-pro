@@ -11,10 +11,10 @@ namespace Nuvio.Input
     /// </summary>
     internal sealed class ControllerBridge : IDisposable
     {
-        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(16);
-        private static readonly TimeSpan FirstRepeatDelay = TimeSpan.FromMilliseconds(300);
-        private static readonly TimeSpan RepeatInterval = TimeSpan.FromMilliseconds(95);
-        private const double StickThreshold = 0.6; private const double StickReleaseThreshold = 0.42;
+        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(30);
+        private static readonly TimeSpan FirstRepeatDelay = TimeSpan.FromMilliseconds(400);
+        private static readonly TimeSpan RepeatInterval = TimeSpan.FromMilliseconds(110);
+        private const double StickThreshold = 0.6;
         private const double TriggerThreshold = 0.5;
 
         private static readonly ButtonAction[] Buttons =
@@ -32,6 +32,8 @@ namespace Nuvio.Input
         private readonly Action<string, bool> _send;
         private readonly DispatcherTimer _timer = new DispatcherTimer();
         private GamepadButtons _previousButtons;
+        private DateTime? _selectPressedAt;
+        private bool _longSelectSent;
         private bool _previousLeftTrigger;
         private bool _previousRightTrigger;
         private string _heldDirection;
@@ -71,10 +73,31 @@ namespace Nuvio.Input
             if (Paused)
             {
                 _heldDirection = null;
+                _selectPressedAt = null;
+                _longSelectSent = false;
                 return;
             }
 
             var now = DateTime.UtcNow;
+            var selectDown = (reading.Buttons & GamepadButtons.A) != 0;
+            if ((pressed & GamepadButtons.A) != 0)
+            {
+                _selectPressedAt = now;
+                _longSelectSent = false;
+            }
+            else if (selectDown && _selectPressedAt.HasValue && !_longSelectSent &&
+                now - _selectPressedAt.Value >= TimeSpan.FromMilliseconds(550))
+            {
+                _longSelectSent = true;
+                _send("longselect", false);
+            }
+            else if (!selectDown && _selectPressedAt.HasValue)
+            {
+                if (!_longSelectSent) _send("select", false);
+                _selectPressedAt = null;
+                _longSelectSent = false;
+            }
+
             if (reading.Direction != _heldDirection)
             {
                 _heldDirection = reading.Direction;
@@ -92,7 +115,7 @@ namespace Nuvio.Input
 
             foreach (var button in Buttons)
             {
-                if ((pressed & button.Button) != 0)
+                if (button.Button != GamepadButtons.A && (pressed & button.Button) != 0)
                 {
                     _send(button.Name, false);
                 }
@@ -107,7 +130,7 @@ namespace Nuvio.Input
             }
         }
 
-        private ControllerReading Read()
+        private static ControllerReading Read()
         {
             var result = new ControllerReading();
             foreach (var gamepad in Gamepad.Gamepads)
@@ -118,13 +141,13 @@ namespace Nuvio.Input
                 result.RightTrigger |= reading.RightTrigger > TriggerThreshold;
                 if (result.Direction == null)
                 {
-                    result.Direction = GetDirection(reading, _heldDirection);
+                    result.Direction = GetDirection(reading);
                 }
             }
             return result;
         }
 
-        private static string GetDirection(GamepadReading reading, string heldDirection)
+        private static string GetDirection(GamepadReading reading)
         {
             if ((reading.Buttons & GamepadButtons.DPadUp) != 0) return "up";
             if ((reading.Buttons & GamepadButtons.DPadDown) != 0) return "down";
@@ -132,7 +155,7 @@ namespace Nuvio.Input
             if ((reading.Buttons & GamepadButtons.DPadRight) != 0) return "right";
             var x = reading.LeftThumbstickX;
             var y = reading.LeftThumbstickY;
-            if (Math.Max(Math.Abs(x), Math.Abs(y)) < (heldDirection == null ? StickThreshold : StickReleaseThreshold))
+            if (Math.Abs(x) < StickThreshold && Math.Abs(y) < StickThreshold)
             {
                 return null;
             }
