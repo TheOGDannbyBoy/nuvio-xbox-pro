@@ -2,6 +2,13 @@
 
 A release's notes come from its section here (the heading must match the tag), and the app shows them when it offers the update.
 
+## v1.4.0
+- **Playback startup:** keep the loading screen until LibVLC creates a video output with real dimensions. If audio starts but video output does not appear within 20 seconds, show an error with a path to another source.
+- **Sources:** the player always opens the complete source list, including torrent results and playback started from Continue Watching.
+- **Automatic recovery:** on a failed stream, try up to three alternative sources, preferring HDR/SDR over Dolby Vision. Torrentio results can resolve through a connected TorBox account when cached. The source picker remains available if none work.
+- **HTTP streams:** report unknown file lengths correctly to LibVLC and accept ranged responses whose total length is unknown.
+- Record the video codec in the local playback log for future format diagnosis.
+
 ## v1.3.0
 - **Jellyfin and Emby:** add your server in Settings → Integrations (Quick Connect or username and password). Its libraries become rows on Home and are searchable, and its files play here directly in their original quality, also listed among your other streams for the same title. Resume points and watched marks come in from the server, and what you watch here goes back to it.
 - **Trakt:** connect with a code in Settings → Integrations. What you play is scrobbled, your Trakt history and paused progress come into watched marks and Continue Watching, your watchlist and recommendations are rows on Home, and watched marks you set here go to Trakt.
