@@ -236,7 +236,10 @@ function handle(action, repeat, source) {
   if (source !== 'code') {
     const other = source === 'native' ? lastBySource.key : lastBySource.native;
     lastBySource[source].set(action, now);
-    if (now - (other.get(action) || -1e9) < DEDUPE_MS) return; if (DIRECTIONS.has(action)) { if (repeat && now - (lastRepeatAt.get(action) || 0) < REPEAT_INTERVAL) return; lastRepeatAt.set(action, now); }
+    if (now - (other.get(action) || -1e9) < DEDUPE_MS) return; 
+    if (DIRECTIONS.has(action)) { 
+      if (repeat && now - (lastRepeatAt.get(action) || 0) < REPEAT_INTERVAL) return; 
+      lastRepeatAt.set(action, now); }
   }
   // The topmost scope, then the view, get first say.
   for (let i = scopes.length - 1; i >= 0; i--) {
