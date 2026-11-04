@@ -5,7 +5,7 @@ import { events, settings } from '../core/store.js';
 import { bridge } from '../core/bridge.js';
 import { formatClock, formatEpisodeCode } from '../core/format.js';
 import { createEngine } from '../player/engines.js';
-import { fetchSubtitles, fetchStreams, enabledAddons } from '../services/addons.js';
+import { fetchSubtitles, fetchStreams, enabledAddons, addonName } from '../services/addons.js';
 import { describeStream, streamHeaders, isPlayable } from '../services/streams.js';
 import { saveProgress, resumeSeconds, parseVideoId } from '../services/progress.js';
 import { fetchMeta, nextEpisode, sortedVideos, isReleased } from '../services/meta.js';
@@ -16,6 +16,7 @@ import { debridAccount, resolveTorrent } from '../services/debrid.js';
 const HIDE_CONTROLS_MS = 4000;
 const SAVE_EVERY_MS = 5000;
 const SEEK_STEP = 10;
+const MAX_AUTOMATIC_FALLBACKS = 3;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const ASPECTS = [['fit', 'Fit'], ['fill', 'Fill (crop)'], ['stretch', 'Stretch'], ['16:9', '16:9'], ['4:3', '4:3'], ['21:9', '21:9']];
 
@@ -64,7 +65,7 @@ export function playerView({ state }) {
       osdButton('audio', 'Audio', () => openAudioMenu()),
       osdButton('speed', 'Speed', () => openSpeedMenu()),
       osdButton('aspect', 'Aspect ratio', () => openAspectMenu()),
-      sources.length > 1 ? osdButton('source', 'Sources', () => openSourcesMenu()) : null,
+      osdButton('source', 'Sources', () => openSourceList()),
       isSeries ? osdButton('episodes', 'Episodes', () => openEpisodesMenu()) : null,
       isSeries ? osdButton('skip-next', 'Next episode', () => playNext()) : null));
   const titleBlock = h('div', { class: 'osd-title' },
@@ -111,6 +112,9 @@ export function playerView({ state }) {
   let controlsVisible = true;
   let menuOpen = false;
   let sessionStarted = false; // a "playback" start was announced for the current stream
+  let fallbackAttempts = 0;
+  let fallbackToken = 0;
+  const failedSources = new Set();
 
   function osdButton(iconName, label, onClick, cls) {
     return h('button', { class: ['osd-btn', 'focusable', cls], type: 'button', 'aria-label': label, title: label, onClick: (e) => {
@@ -197,6 +201,7 @@ export function playerView({ state }) {
 
   // ---------- Start ----------
   function start(target, at) {
+    fallbackToken++;
     report('stop');
     stream = target;
     ready = false;
@@ -590,21 +595,10 @@ export function playerView({ state }) {
     engine.setAspect(aspect);
   }
 
-  async function openSourcesMenu() {
-    const items = sources.map((s, i) => {
-      const d = describeStream(s, s.addonName || '');
-      return {
-        label: d.name,
-        description: [s.addonName, d.sizeText, ...d.badges].filter(Boolean).join(' · '),
-        badge: d.resolution,
-        value: i,
-        selected: s.url === stream.url,
-      };
-    });
-    const choice = await menu({ title: 'Sources', items });
-    if (choice == null || sources[choice].url === stream.url) return;
+  function openSourceList() {
     save(true);
-    start(sources[choice], currentTime());
+    report('stop');
+    router.replace(`streams/${meta.type}/${encodeURIComponent(meta.id)}/${encodeURIComponent(contentInfo.videoId)}`, { meta, video });
   }
 
   async function openEpisodesMenu() {
@@ -760,10 +754,29 @@ export function playerView({ state }) {
   }
 
   // ---------- Errors ----------
-  function showError(message) {
+  async function showError(message) {
     ready = false;
     loading.hidden = true;
     el.classList.remove('ready');
+    if (stream.url) failedSources.add(stream.url);
+    if (stream.infoHash) failedSources.add(stream.infoHash);
+    const token = fallbackToken;
+    if (fallbackAttempts < MAX_AUTOMATIC_FALLBACKS) {
+      loadingText.textContent = 'Trying another source…';
+      loading.hidden = false;
+      const alternative = await findFallbackSource().catch((error) => {
+        console.warn('Could not find another source', error);
+        return null;
+      });
+      if (closed || token !== fallbackToken) return;
+      if (alternative) {
+        fallbackAttempts++;
+        toast(`Trying another source (${fallbackAttempts}/${MAX_AUTOMATIC_FALLBACKS})`);
+        start(alternative, lastTime);
+        return;
+      }
+      loading.hidden = true;
+    }
     if (state.fallbackToStreams) {
       // A saved link from Continue Watching may have expired: pick a fresh one.
       toast('That link no longer works. Pick a source.');
@@ -780,9 +793,59 @@ export function playerView({ state }) {
       h('div', { class: 'error-actions' },
         nextSource ? button('Try next source', { variant: 'primary', autofocus: true, onClick: () => start(nextSource, lastTime) }) : null,
         button('Retry', { variant: nextSource ? 'secondary' : 'primary', onClick: () => start(stream, lastTime) }),
-        button('Choose another source', { onClick: () => exit() })));
+        button('Choose another source', { onClick: () => openSourceList() })));
     errorBox.hidden = false;
     focus.restore(errorBox);
+  }
+
+  async function findFallbackSource() {
+    // Direct links already supplied by the source screen require no extra network lookup.
+    const known = rankFallbacks(sources.filter((s) => isPlayable(s) && !failedSources.has(s.url)));
+    if (known.length && !describeStream(known[0], '').badges.includes('DV')) return known[0];
+
+    // Also search enabled addons for links not passed along by Continue Watching or the
+    // stream screen. Torrentio results can resolve via TorBox when already cached.
+    const canResolveTorrent = debridAccount()?.provider === 'torbox';
+    const addons = enabledAddons();
+    const results = await Promise.all(addons.map(async (addon) => {
+      try {
+        return (await fetchStreams(addon, meta.type, contentInfo.videoId)).map((s) => ({
+          ...s, addonUrl: addon.transportUrl, addonName: addonName(addon),
+        }));
+      } catch {
+        return [];
+      }
+    }));
+    const candidates = rankFallbacks([...known, ...results.flat()].filter((s) =>
+      (isPlayable(s) || (canResolveTorrent && s.infoHash)) && !failedSources.has(s.url || s.infoHash)));
+    for (const candidate of candidates.slice(0, 12)) {
+      if (isPlayable(candidate)) return candidate;
+      failedSources.add(candidate.infoHash);
+      try {
+        const link = await resolveTorrent(candidate, { season: contentInfo.season, episode: contentInfo.episode });
+        if (link.url && !failedSources.has(link.url)) {
+          return { ...candidate, url: link.url, behaviorHints: {
+            ...(candidate.behaviorHints || {}), filename: link.filename || undefined,
+            videoSize: link.size || undefined,
+          } };
+        }
+      } catch {
+        // This result may not be cached; try the next one.
+      }
+    }
+    return null;
+  }
+
+  function rankFallbacks(candidates) {
+    // LibVLC 3 on Xbox cannot be assumed to handle every Dolby Vision profile.
+    // Prefer a plain HDR/SDR copy when one is available.
+    return [...candidates].sort((a, b) => {
+      const score = (s) => {
+        const d = describeStream(s, s.addonName || '');
+        return (d.badges.includes('DV') ? -100 : 0) + (d.badges.includes('HDR') ? 5 : 0) + d.rank;
+      };
+      return score(b) - score(a);
+    });
   }
 
   function exit() {
