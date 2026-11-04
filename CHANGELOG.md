@@ -3,7 +3,13 @@
 A release's notes come from its section here (the heading must match the tag), and the app shows them when it offers the update.
 
 ## v1.4.0
+- **Xbox playback:** clear the VLC video surface when a source changes so a previous stream's last frame cannot remain over the new stream's audio.
+- **Xbox scrolling:** defer off-screen Home rows, add-on cards and menu items to reduce unnecessary WebView layout and painting.
+- **Account sign-out:** remove the active profile's cached add-ons on sign-out; keep the local library and device integrations such as TorBox.
 - **Playback startup:** keep the loading screen until LibVLC creates a video output with real dimensions. If audio starts but video output does not appear within 20 seconds, show an error with a path to another source.
+- **Stream selection:** choose manual selection, automatic first playable source, or an automatic regex match; configure how long addons have to respond. If automatic playback cannot start, the source list remains available.
+- **Custom stream badges:** import up to three Nuvio-compatible badge JSON sets and show their names, images and colors on matching streams.
+- **Controller actions:** hold A on a title card to open its actions, including library, watched and Continue Watching options.
 - **Sources:** the player always opens the complete source list, including torrent results and playback started from Continue Watching.
 - **Automatic recovery:** on a failed stream, try up to three alternative sources, preferring HDR/SDR over Dolby Vision. Torrentio results can resolve through a connected TorBox account when cached. The source picker remains available if none work.
 - **HTTP streams:** report unknown file lengths correctly to LibVLC and accept ranged responses whose total length is unknown.
