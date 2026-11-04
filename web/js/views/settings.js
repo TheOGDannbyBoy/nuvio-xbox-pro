@@ -2,6 +2,7 @@ import { h, icon, img, clear } from '../core/dom.js';
 import { focus } from '../core/focus.js';
 import { router } from '../core/router.js';
 import { bridge } from '../core/bridge.js';
+import { qrSvg } from '../core/qr.js';
 import { events, settings } from '../core/store.js';
 import {
   listAddons, installAddon, removeAddon, moveAddon, setAddonEnabled, refreshAddon, addonName,
@@ -10,11 +11,11 @@ import {
 import { LANGUAGE_CHOICES } from '../services/subtitles.js';
 import { accountPage } from './account.js';
 import { integrationsPage } from './integrations.js';
-import { DEBRID_PROVIDERS, debridAccount, setDebridAccount, validateDebridKey } from '../services/debrid.js';
+import { DEBRID_PROVIDERS, debridAccount, setDebridAccount, validateDebridKey, startTorboxDeviceAuth, waitForTorboxDeviceAuth } from '../services/debrid.js';
 import { installKind, checkForUpdate, lastUpdateCheck } from '../services/updates.js';
 import { showUpdateDialog } from '../components/update.js';
 import {
-  settingRow, toggleRow, button, chip, choicePanel, promptDialog, confirmDialog, toast, emptyState, spinner,
+  settingRow, toggleRow, button, chip, choicePanel, promptDialog, confirmDialog, openDialog, toast, emptyState, spinner,
 } from '../components/ui.js';
 
 const SECTIONS = [
@@ -206,6 +207,7 @@ function debridPage() {
 
   async function connect(provider) {
     const info = DEBRID_PROVIDERS[provider];
+    if (provider === 'torbox') return connectTorbox();
     const key = await promptDialog({
       title: `${info.name} API key`,
       message: `Find it at ${info.keyHelp}.`,
@@ -226,6 +228,38 @@ function debridPage() {
     setDebridAccount({ provider, apiKey: key.trim() });
     toast(`${info.name} connected`, { kind: 'success' });
     render();
+  }
+
+  function connectTorbox() {
+    const controller = new AbortController();
+    openDialog({
+      title: 'Connect TorBox',
+      build: (close) => {
+        const body = h('div', { class: 'code-signin' }, spinner(), h('p', null, 'Getting a TorBox code…'));
+        (async () => {
+          try {
+            const auth = await startTorboxDeviceAuth();
+            const qr = h('div', { class: 'code-qr', html: qrSvg(auth.url) });
+            clear(body).append(h('div', { class: 'code-layout' }, qr, h('div', { class: 'code-text' },
+              h('p', null, 'On your phone, open'),
+              h('div', { class: 'code-link' }, auth.url.replace(/^https?:\/\//, '')),
+              h('p', null, 'Sign in to TorBox and enter this code:'),
+              h('div', { class: 'code-value' }, auth.userCode),
+              h('p', { class: 'settings-hint' }, 'This code expires in about 10 minutes.'))));
+            const token = await waitForTorboxDeviceAuth(auth, controller.signal);
+            if (controller.signal.aborted) return;
+            setDebridAccount({ provider: 'torbox', apiKey: token });
+            toast('TorBox connected', { kind: 'success' });
+            render();
+            close(true);
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            clear(body).append(h('p', null, error.message || 'Could not connect to TorBox.'));
+          }
+        })();
+        return h('div', null, body, h('div', { class: 'dialog-actions' }, button('Cancel', { autofocus: true, onClick: () => close(null) })));
+      },
+    }).then(() => controller.abort());
   }
 
   function render() {
