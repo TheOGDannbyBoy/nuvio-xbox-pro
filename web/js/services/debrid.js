@@ -75,6 +75,49 @@ export async function validateDebridKey(provider, apiKey) {
   return false;
 }
 
+/** Start TorBox's TV-friendly device authorization flow. */
+export async function startTorboxDeviceAuth() {
+  const response = await call('https://api.torbox.app/v1/api/user/auth/device/start?app=NuvioXbox');
+  const data = response.data && response.data.data;
+  if (!response.ok || !data || !data.device_code || !data.code) {
+    throw new Error((response.data && (response.data.detail || response.data.error)) || 'TorBox could not create a link code.');
+  }
+  return {
+    deviceCode: data.device_code,
+    userCode: data.code,
+    url: data.friendly_verification_url || data.verification_url || 'https://tor.box/link',
+    interval: Math.max(2, Number(data.interval) || 5),
+    expiresAt: data.expires_at ? Date.parse(data.expires_at) : Date.now() + 10 * 60 * 1000,
+  };
+}
+
+/** Poll until the TorBox code is approved, then persist the returned API access token locally. */
+export async function waitForTorboxDeviceAuth(auth, signal, onWaiting = () => {}) {
+  while (!signal.aborted && Date.now() < auth.expiresAt) {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, auth.interval * 1000);
+      signal.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('Cancelled.')); }, { once: true });
+    });
+    if (signal.aborted) throw new Error('Cancelled.');
+    const response = await call('https://api.torbox.app/v1/api/user/auth/device/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_code: auth.deviceCode }),
+    });
+    const data = response.data && response.data.data;
+    const token = data && (data.access_token || data.token);
+    if (response.ok && token) return token;
+    const detail = String((response.data && (response.data.detail || response.data.error || response.data.message)) || '').toLowerCase();
+    if (response.status === 429 || /pending|waiting|not authorized|authorization required|slow down/.test(detail)) {
+      onWaiting();
+      continue;
+    }
+    if (response.status >= 500) throw new Error('TorBox is temporarily unavailable. Try again.');
+    // TorBox returns an unsuccessful response while the user has not approved the code yet.
+    if (response.status === 400 || response.status === 401) { onWaiting(); continue; }
+    throw new Error('TorBox could not complete the link. Generate a new code and try again.');
+  }
+  throw new Error(signal.aborted ? 'Cancelled.' : 'That TorBox code expired. Generate a new one.');
+}
+
 // ---------- Resolving ----------
 
 export function magnetFor(stream) {
