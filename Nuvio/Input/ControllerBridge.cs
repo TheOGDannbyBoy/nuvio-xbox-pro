@@ -11,10 +11,10 @@ namespace Nuvio.Input
     /// </summary>
     internal sealed class ControllerBridge : IDisposable
     {
-        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(30);
-        private static readonly TimeSpan FirstRepeatDelay = TimeSpan.FromMilliseconds(400);
-        private static readonly TimeSpan RepeatInterval = TimeSpan.FromMilliseconds(110);
-        private const double StickThreshold = 0.6;
+        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(16);
+        private static readonly TimeSpan FirstRepeatDelay = TimeSpan.FromMilliseconds(300);
+        private static readonly TimeSpan RepeatInterval = TimeSpan.FromMilliseconds(95);
+        private const double StickThreshold = 0.6; private const double StickReleaseThreshold = 0.42;
         private const double TriggerThreshold = 0.5;
 
         private static readonly ButtonAction[] Buttons =
@@ -107,7 +107,7 @@ namespace Nuvio.Input
             }
         }
 
-        private static ControllerReading Read()
+        private ControllerReading Read()
         {
             var result = new ControllerReading();
             foreach (var gamepad in Gamepad.Gamepads)
@@ -118,13 +118,13 @@ namespace Nuvio.Input
                 result.RightTrigger |= reading.RightTrigger > TriggerThreshold;
                 if (result.Direction == null)
                 {
-                    result.Direction = GetDirection(reading);
+                    result.Direction = GetDirection(reading, _heldDirection);
                 }
             }
             return result;
         }
 
-        private static string GetDirection(GamepadReading reading)
+        private static string GetDirection(GamepadReading reading, string heldDirection)
         {
             if ((reading.Buttons & GamepadButtons.DPadUp) != 0) return "up";
             if ((reading.Buttons & GamepadButtons.DPadDown) != 0) return "down";
@@ -132,7 +132,7 @@ namespace Nuvio.Input
             if ((reading.Buttons & GamepadButtons.DPadRight) != 0) return "right";
             var x = reading.LeftThumbstickX;
             var y = reading.LeftThumbstickY;
-            if (Math.Abs(x) < StickThreshold && Math.Abs(y) < StickThreshold)
+            if (Math.Max(Math.Abs(x), Math.Abs(y)) < (heldDirection == null ? StickThreshold : StickReleaseThreshold))
             {
                 return null;
             }
