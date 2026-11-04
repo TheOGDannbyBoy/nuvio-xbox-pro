@@ -143,6 +143,8 @@ html.pointer .sidebar-item:hover:not(.focused) { background: var(--surface-2); c
   display: inline-flex; align-items: center; padding: .1rem .55rem; border-radius: .35rem;
   background: var(--surface-2); color: var(--text-2); font-size: .85rem; font-weight: 600; letter-spacing: .02em;
 }
+.stream-badge-custom { background: var(--badge-bg); border: .1rem solid var(--badge-border); }
+.badge-image { display: block; width: auto; height: 1.1rem; max-width: 5rem; object-fit: contain; }
 
 /* ---------- Buttons & chips ---------- */
 .btn {
@@ -177,7 +179,13 @@ html.pointer .chip:hover:not(.focused) { background: var(--surface-2); }
 
 /* ---------- Rows & cards ---------- */
 .home-rows { position: relative; z-index: 1; padding-bottom: 4rem; }
-.row { margin-bottom: 1.6rem; }
+.row {
+  margin-bottom: 1.6rem;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 24rem;
+}
+.row-wide, .row-landscape { contain-intrinsic-size: auto 17rem; }
+.row-square { contain-intrinsic-size: auto 20rem; }
 .row-header { display: flex; align-items: baseline; gap: 1rem; padding: 0 var(--content-right) 0 var(--content-left); }
 .row-title { font-size: 1.45rem; font-weight: 700; }
 .row-subtitle { color: var(--muted); font-size: 1rem; }
@@ -359,6 +367,7 @@ html.pointer .card:hover .card-art { box-shadow: 0 0 0 .15rem rgba(255, 255, 255
   padding: 1.1rem 1.3rem; border-radius: var(--radius); background: rgba(var(--bg-rgb), .55);
   border: .1rem solid var(--border); flex: none;
   transition: background .15s, transform .15s var(--ease), border-color .15s;
+  content-visibility: auto; contain-intrinsic-size: auto 8rem;
 }
 .stream-item.focused { background: #fff; color: #000; border-color: #fff; transform: scale(1.01); }
 html.pointer .stream-item:hover:not(.focused) { background: var(--surface-2); }
@@ -405,6 +414,7 @@ html.pointer .stream-item:hover:not(.focused) { background: var(--surface-2); }
 .setting-row {
   display: flex; align-items: center; gap: 1.2rem; min-height: 4.6rem; padding: .9rem 1.4rem;
   border-radius: var(--radius); background: var(--surface); transition: background .15s, transform .15s var(--ease);
+  content-visibility: auto; contain-intrinsic-size: auto 5.4rem;
 }
 .setting-row.focused { background: #fff; color: #000; transform: scale(1.01); }
 html.pointer .setting-row:hover:not(.focused) { background: var(--surface-2); }
@@ -424,7 +434,7 @@ html.pointer .setting-row:hover:not(.focused) { background: var(--surface-2); }
 .setting-row.focused .toggle:not(.on) { background: rgba(0, 0, 0, .25); }
 
 .addon-list { display: flex; flex-direction: column; gap: 1rem; }
-.addon-card { padding: 1.3rem 1.4rem; border-radius: var(--radius); background: var(--surface); display: flex; flex-direction: column; gap: 1rem; }
+.addon-card { padding: 1.3rem 1.4rem; border-radius: var(--radius); background: var(--surface); display: flex; flex-direction: column; gap: 1rem; content-visibility: auto; contain-intrinsic-size: auto 14rem; }
 .addon-card.disabled { opacity: .6; }
 .addon-head { display: flex; gap: 1.2rem; align-items: flex-start; }
 .addon-logo { width: 4rem; height: 4rem; border-radius: .8rem; object-fit: contain; background: var(--surface-2); flex: none; }
@@ -480,9 +490,8 @@ html.pointer .setting-row:hover:not(.focused) { background: var(--surface-2); }
 .profile-lock .icon { width: 1rem; height: 1rem; }
 .profile-avatar {
   display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%;
-  color: #fff; font-weight: 700; text-shadow: 0 .1rem .3rem rgba(0, 0, 0, .3); position: relative; overflow: hidden;
+  color: #fff; font-weight: 700; text-shadow: 0 .1rem .3rem rgba(0, 0, 0, .3);
 }
-.profile-avatar-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .profile-avatar-small { width: 2.2rem; height: 2.2rem; font-size: 1rem; margin-left: .6rem; }
 html.pointer .profile-tile:hover:not(.focused) { color: var(--text); }
 
@@ -535,6 +544,7 @@ html.pointer .profile-tile:hover:not(.focused) { color: var(--text); }
 .choice {
   display: flex; align-items: center; gap: .9rem; min-height: 3.6rem; padding: .6rem .9rem; border-radius: .7rem;
   flex: none; transition: background .12s;
+  content-visibility: auto; contain-intrinsic-size: auto 4.8rem;
 }
 .choice-check { width: 1.5rem; flex: none; display: flex; color: var(--accent-strong); }
 .choice-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
