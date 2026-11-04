@@ -55,10 +55,10 @@ export function accountPage() {
         }) : null,
         settingRow({
           label: 'Sign out',
-          description: 'Your addons and library stay on this device',
+          description: 'Remove this profile’s addons from this device; keep your library and device integrations',
           icon: 'logout',
           onClick: async () => {
-            if (await confirmDialog({ title: 'Sign out?', message: 'Sync stops until you sign in again.', confirmLabel: 'Sign out', danger: true })) signOut();
+            if (await confirmDialog({ title: 'Sign out?', message: 'This removes the active profile’s addons from this device. Your library and device integrations, including TorBox, stay saved. Addons will sync back when you sign in again.', confirmLabel: 'Sign out', danger: true })) await signOut();
           },
         }));
     } else {

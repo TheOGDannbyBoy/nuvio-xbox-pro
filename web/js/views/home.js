@@ -5,11 +5,12 @@ import { focus } from '../core/focus.js';
 import { typeLabel } from '../core/format.js';
 import { homeCatalogs, fetchCatalog, addonName, enabledAddons } from '../services/addons.js';
 import { continueWatching, dismissContinueWatching, isWatched } from '../services/progress.js';
+import { inLibrary, toggleLibrary } from '../services/library.js';
 import { fetchMeta, nextEpisode, isReleased, genresOf, yearText } from '../services/meta.js';
 import { posterCard, continueCard, viewAllCard } from '../components/cards.js';
 import { cardRow } from '../components/rows.js';
-import { button, emptyState, choicePanel } from '../components/ui.js';
-import { openTitle, playVideo, resumeEntry } from '../services/navigation.js';
+import { button, emptyState, choicePanel, toast } from '../components/ui.js';
+import { openTitle, openTitleActions, playVideo, resumeEntry } from '../services/navigation.js';
 
 const HERO_ITEMS = 6;
 const HERO_INTERVAL_MS = 9000;
@@ -59,6 +60,7 @@ export function homeView() {
         },
         render: (meta) => {
           const card = posterCard(meta, { onClick: () => openTitle(meta), watched: isWatched(meta.id) });
+          card.__meta = meta;
           card.addEventListener('nav-focus', () => backdrop.show(meta.background));
           return card;
         },
@@ -94,18 +96,28 @@ export function homeView() {
 
   // Y / Menu on a Continue Watching card: more options.
   cleanups.push(events.on('nav:action', async ({ action }) => {
-    if (el.hidden || (action !== 'menu' && action !== 'y')) return;
+    if (el.hidden || !['menu', 'y', 'longselect'].includes(action)) return;
     const entry = focus.current && focus.current.__entry;
-    if (!entry) return;
+    const meta = focus.current && focus.current.__meta;
+    if (!entry && !meta) return;
+    if (!entry) {
+      await openTitleActions(meta);
+      return;
+    }
     const choice = await choicePanel({
       title: entry.title,
       items: [
         { label: 'Go to details', value: 'details' },
+        { label: inLibrary(entry.contentId) ? 'Remove from Library' : 'Add to Library', value: 'library' },
         !entry.nextUp && { label: 'Start from beginning', value: 'restart' },
         { label: 'Remove', value: 'remove' },
       ].filter(Boolean),
     });
     if (choice === 'details') router.go(`details/${entry.contentType}/${encodeURIComponent(entry.contentId)}`);
+    else if (choice === 'library') {
+      const meta = { id: entry.contentId, type: entry.contentType, name: entry.title, poster: entry.poster, background: entry.background, logo: entry.logo };
+      toast(toggleLibrary(meta) ? 'Added to your library' : 'Removed from your library');
+    }
     else if (choice === 'restart') resumeEntry(entry, { restart: true });
     else if (choice === 'remove') dismissContinueWatching(entry.contentId);
   }));
