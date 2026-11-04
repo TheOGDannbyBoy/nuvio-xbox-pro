@@ -54,5 +54,5 @@ for development.
 | `player.duration` | `id`, `duration` | Once, when VLC knows the length. |
 | `player.tracks` | `id`, `audio`, `subtitles` (arrays of `{ id, name, lang, title, codec, selected }`), `audioId`, `subtitleId` | Whenever the tracks change. |
 | `player.video` | `id`, `width`, `height` | |
-| `player.ready` | `id` | The first frame is showing (or, for audio, playback started); the page turns transparent. |
+| `player.ready` | `id` | LibVLC created a video output with nonzero dimensions; the page turns transparent. This does not prove the decoded picture is visible. |
 | `player.ended` | `id`, `reason` (`eof` or `error`), `message` | A stream that ends before it ever played is reported as an error. Dropped connections are retried (up to 5 times) before anything is reported. |
