@@ -39,7 +39,7 @@ namespace Nuvio.Playback
         private const string PlaybackErrorMessage = "VLC could not play this stream.";
         private static readonly TimeSpan StartupTimeout = TimeSpan.FromSeconds(20);
         private static readonly TimeSpan TimeReportInterval = TimeSpan.FromMilliseconds(250);
-        private static readonly TimeSpan ReadyFallbackDelay = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan VideoOutputTimeout = TimeSpan.FromSeconds(20);
         private static readonly string[] AllowedSchemes = { "http", "https", "rtsp", "rtmp", "rtp", "udp", "mms", "ftp", "smb" };
 
         private readonly CoreDispatcher _dispatcher;
@@ -69,6 +69,8 @@ namespace Nuvio.Playback
         private bool _hasPlayed;
         private bool _inputStarted;
         private int _reconnects;
+        private bool _videoCodecLogged;
+        private long _videoStartGeneration;
         private bool _wantPaused;
         private int _wantVolume = 100;
         private bool _wantMute;
@@ -213,6 +215,7 @@ namespace Nuvio.Playback
                 _request = request;
                 _hasPlayed = false;
                 _reconnects = 0;
+                _videoCodecLogged = false;
                 _pendingSeekMs = -1;
                 _wantPaused = false;
                 _wantAudioTrack = null;
@@ -428,6 +431,7 @@ namespace Nuvio.Playback
         private void StartPlayback(double startSeconds)
         {
             StopPlayer();
+            _videoStartGeneration++;
             _inputStarted = false;
             Interlocked.Exchange(ref _lastTimeMs, (long)(startSeconds * 1000));
             var options = new List<string>
@@ -582,7 +586,8 @@ namespace Nuvio.Playback
             ApplyTrackPreferences();
             RefreshTracks(seq);
 
-            var hasVideoOutput = _mediaPlayer.VoutCount > 0;
+            var hasVideoOutput = HasUsableVideoOutput();
+            var generation = _videoStartGeneration;
             var paused = _wantPaused;
             RunOnUi(() =>
             {
@@ -597,8 +602,8 @@ namespace Nuvio.Playback
                 }
                 else
                 {
-                    // Audio-only streams never create a video output.
-                    ScheduleReadyFallback(seq);
+                    // Movies and episodes require a real video output; audio alone is not ready.
+                    ScheduleVideoStartupCheck(seq, generation);
                 }
             });
         }
@@ -622,7 +627,10 @@ namespace Nuvio.Playback
                     payload.SetNamedValue("height", JsonValue.CreateNumberValue(height));
                     Raise("player.video", payload);
                 }
-                MarkVideoReady(seq);
+                if (width > 0 && height > 0)
+                {
+                    MarkVideoReady(seq);
+                }
             });
         }
 
@@ -762,10 +770,20 @@ namespace Nuvio.Playback
             MediaTrack[] mediaTracks;
             using (var media = _mediaPlayer.Media)
             {
-                mediaTracks = media != null ? media.Tracks : new MediaTrack[0];
+                mediaTracks = media != null ? (media.Tracks ?? new MediaTrack[0]) : new MediaTrack[0];
             }
             var currentAudio = _mediaPlayer.AudioTrack;
             var currentSpu = _mediaPlayer.Spu;
+            if (!_videoCodecLogged)
+            {
+                foreach (var track in mediaTracks)
+                {
+                    if (track.TrackType != TrackType.Video) continue;
+                    Log.Write("Video track codec: " + (FourCcToString(track.Codec) ?? "unknown"));
+                    _videoCodecLogged = true;
+                    break;
+                }
+            }
             var audio = TracksToJson(_mediaPlayer.AudioTrackDescription, mediaTracks, TrackType.Audio, currentAudio);
             var subtitles = TracksToJson(_mediaPlayer.SpuDescription, mediaTracks, TrackType.Text, currentSpu);
 
@@ -880,10 +898,55 @@ namespace Nuvio.Playback
             VideoVisibleChanged?.Invoke(true);
         }
 
-        private async void ScheduleReadyFallback(long seq)
+        private async void ScheduleVideoStartupCheck(long seq, long generation)
         {
-            await Task.Delay(ReadyFallbackDelay);
-            MarkVideoReady(seq);
+            await Task.Delay(VideoOutputTimeout);
+            Enqueue(() =>
+            {
+                if (seq != Interlocked.Read(ref _workerLoadSeq) || generation != _videoStartGeneration || _mediaPlayer == null) return;
+                if (HasUsableVideoOutput())
+                {
+                    RunOnUi(() => MarkVideoReady(seq));
+                    return;
+                }
+                int audioTracks;
+                int videoTracks;
+                GetTrackKinds(out audioTracks, out videoTracks);
+                RunOnUi(() =>
+                {
+                    if (seq != _loadSeq || _readySent) return;
+                    Log.Write("Video output did not start; audio tracks=" + audioTracks + ", video tracks=" + videoTracks);
+                    RaiseEnded("error", "The video did not start. Choose another source or a compatible HDR10 version.");
+                    Enqueue(() =>
+                    {
+                        if (seq == Interlocked.Read(ref _workerLoadSeq) && !HasUsableVideoOutput()) StopPlayer();
+                    });
+                });
+            });
+        }
+
+        // Worker. Track counts help distinguish missing video from a failed video output in the log.
+        private void GetTrackKinds(out int audio, out int video)
+        {
+            audio = 0;
+            video = 0;
+            using (var media = _mediaPlayer.Media)
+            {
+                if (media == null) return;
+                foreach (var track in media.Tracks ?? new MediaTrack[0])
+                {
+                    if (track.TrackType == TrackType.Audio) audio++;
+                    if (track.TrackType == TrackType.Video) video++;
+                }
+            }
+        }
+
+        private bool HasUsableVideoOutput()
+        {
+            if (_mediaPlayer.VoutCount == 0) return false;
+            uint width = 0;
+            uint height = 0;
+            return _mediaPlayer.Size(0, ref width, ref height) && width > 0 && height > 0;
         }
 
         private void RaiseState(string state, string message)

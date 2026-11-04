@@ -38,6 +38,8 @@ namespace Nuvio.Playback
         {
             _uri = new Uri(url);
             _headers = headers ?? new Dictionary<string, string>();
+            // LibVLCSharp selects its seek callback when Media is constructed, before Open runs.
+            // Seek itself rejects offsets if this server does not support ranges.
             CanSeek = true;
         }
 
@@ -58,7 +60,8 @@ namespace Nuvio.Playback
                 OpenAt(0);
                 Log.Write("Opened stream: " + (_length > 0 ? Math.Round(_length / 1048576.0) + " MB" : "unknown size") +
                     (_supportsRanges ? ", seekable" : ", not seekable") + ", from " + Log.DescribeUrl(_uri.AbsoluteUri));
-                size = _length;
+                // MediaInput requires UINT64_MAX for an unknown length; zero means an empty file.
+                size = _length > 0 ? _length : ulong.MaxValue;
                 return true;
             }
             catch (Exception ex)
@@ -193,9 +196,9 @@ namespace Nuvio.Playback
                 _uri = response.RequestMessage.RequestUri;
             }
             var range = response.Content.Headers.ContentRange;
-            if (response.StatusCode == HttpStatusCode.PartialContent && range != null && range.Length.HasValue)
+            if (response.StatusCode == HttpStatusCode.PartialContent && range != null)
             {
-                _length = range.Length.Value;
+                _length = range.Length ?? 0;
                 _supportsRanges = true;
             }
             else
