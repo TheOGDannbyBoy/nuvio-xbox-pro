@@ -59,6 +59,12 @@ namespace Nuvio
                 if (VideoView != null)
                 {
                     VideoView.Opacity = visible ? 1 : 0;
+                    if (!visible)
+                    {
+                        // Clear the UWP swap chain on a source change so audio from a new
+                        // stream cannot appear over the last frame of the previous stream.
+                        VideoView.Clear();
+                    }
                 }
             };
             // The page has its own focus navigation for the controller; the console's mouse-mode
